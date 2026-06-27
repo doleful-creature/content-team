@@ -44,8 +44,12 @@ by Go/Python/Java/C#. TypeScript is throwaway scaffolding; the schema files are 
 ## What this POC proves — and what it does *not*
 
 **Proves (this round):**
-- Which carrier(s) survive each express-checkout path, from **real raw webhook bodies** (the bedrock fact
-  that determines what `AttributedSale.attribution.*` can reliably carry).
+- That the capture carries **everything Jovonte's commission engine needs** — the stable party key
+  (`resolved_rep_id` or `customer_id`) + confidence, raw money, context, and reversal anchors — validated
+  consumer-driven against the engine's input spec. *(The headline: capture sufficiency for the seam.)*
+- Which carrier(s) survive each express-checkout path, from **real raw webhook bodies** — supporting
+  evidence for how reliably each engine-required field is populated (express measured via an accepted
+  Apple/Google-Pay proxy; real Shop Pay deferred to a logged pre-freeze gate).
 - That the Capture context can ingest at-least-once Shopify webhooks **idempotently** (duplicate delivery →
   exactly one `order_attribution` row, asserted *by row count*).
 - That the Tier-2 first-party-id (`mlm_aid`) stitch rescues express/guest orders the Tier-1 carrier drops.
@@ -148,12 +152,24 @@ contracts set; a deliberately-malformed fixture turns CI red.
 
 ---
 
-## Phase 1 — Empirical attribution matrix (THE bedrock) — run fresh
+## Phase 1 — Capture sufficiency for the commission engine (matrix as evidence) — run fresh
 
-**Goal:** Replace the worksheet's all-`⬜` grid with real results, and record the carrier-ranking decision.
-Everything downstream depends on this; if it's wrong, the contract is validated against the wrong reality.
+**Goal (reframed):** Prove the capture produces **everything Jovonte's commission engine needs** from a
+sale, under realistic checkout conditions including express-checkout failure modes. The carrier-survival
+matrix is **supporting evidence** for how reliably each engine-required field is populated — not the end in
+itself. The *seam*, not the carrier ranking, is the priority this round.
 
-**Build the raw sink first** (this discipline is non-negotiable and starts *here*, not in Phase 2):
+**Step 1 — Capture-sufficiency checklist (consumer-driven; the headline deliverable).** From Jovonte's
+engine *input spec*, enumerate every field the engine consumes per sale; for each, record (a) which
+`AttributedSale` field carries it, (b) where it originates (order-native carrier / Tier-2 `customer.id`
+stitch / derived / reverse-seam `customer_type`), (c) reliability + the fallback when absent. Load-bearing
+needs: a **stable party key** (`resolved_rep_id` when known, else `customer_id`) **+ `bind_confidence`**, with
+`null` first-class; **raw money** (line items + per-line discount + currency — capture must *not* pre-compute
+volume; the engine applies its own PV/BV/CV table); `context` (retail vs enrollment); `links` (`customer_id`,
+`refund_of`); `occurred_at` + `idempotency_key`; and the persisted `customer→rep` map for rebills. If the
+checklist surfaces a missing field, propose the **additive** change to `attributed_sale.v1.json`.
+
+**Step 2 — Run the matrix as evidence** (build the raw sink first; discipline starts *here*, not Phase 2):
 ```ts
 app.post('/webhooks', express.raw({ type: 'application/json' }), (req, res) => {
   const raw = req.body.toString('utf8');          // capture verbatim BEFORE any JSON parse
@@ -162,33 +178,29 @@ app.post('/webhooks', express.raw({ type: 'application/json' }), (req, res) => {
 });
 ```
 - Register **`orders/create` AND `orders/paid`** separately (express/wallet can populate one but not the
-  other), plus `refunds/create` (for the later rebill/refund recon). Versioned in `shopify.app.toml`.
-- Log the **complete raw body** to disk/Postgres. Use **webhook.site** on day 1 for instant payload
-  archaeology before the sink is solid.
-- Tokens: `SMOKE_<testid>_<unixts>`, **never reused**. Dedupe on order id before grepping (Shopify
-  redelivers).
+  other), plus `refunds/create`. Versioned in `shopify.app.toml`.
+- Log the **complete raw body**; **webhook.site** on day 1 for instant archaeology before the sink is solid.
+- Tokens `SMOKE_<testid>_<unixts>`, **never reused**; dedupe on order id before grepping (Shopify redelivers).
+- Carriers C1–C5 × paths P1–P6. **Decisive cells first:** C1×P2, C1×P3, C1×P4, C1×P5, C4×P2/P3/P4, C1×P6,
+  and the time-delayed **rebill** test. Harvest Tier-2 recon (`cart_token` / `checkout_token` / `customer_id`
+  presence) **in the same pass**.
 
-**Run the matrix** (carriers C1–C5 × paths P1–P6 from the worksheet). **Decisive cells first:** C1×P2,
-C1×P3, C1×P4, C1×P5, C4×P2/P3/P4, C1×P6, and the time-delayed **rebill** test. Harvest Tier-2 recon
-(`cart_token` / `checkout_token` / `customer_id` presence) **in the same pass**.
+> ### Express-checkout policy — proxy accepted this round, real Shop Pay deferred
+> Real **Shop Pay / Shop Pay Installments / PayPal Wallet do not render in test mode**; only Apple/Google Pay
+> express buttons do. Because the priority is *capture sufficiency for the engine* (not the precise carrier
+> ranking), **Apple/Google Pay in test mode is an accepted proxy** this round — their `cart_token`-null /
+> dropped-`note_attributes` behavior is exactly the express failure mode that forces the Tier-2 stitch to
+> still yield a usable party key. Real Shop Pay is **demoted to a deferred, logged gate**, recorded as an
+> **OPEN RISK in the decision register**: *"confirm carrier survival against real Shop Pay before freezing
+> `attributed_sale.v1`."* Close it with a paid-month order before Phase 4 — do not silently drop it.
 
-> ### ⚠ The load-bearing decision in this whole plan — the Shop Pay express path
-> The `gimlet` dev store is on the standard **Shopify** plan. On a free/test-mode store, **Apple Pay and
-> Google Pay express buttons work, but real Shop Pay, Shop Pay Installments, and PayPal Wallet do NOT.**
-> So the matrix would otherwise validate express-checkout *against a proxy* and assume equivalence to the
-> highest-volume real express path. **Recommendation:** run the full matrix on the free store with
-> Apple/Google Pay as the express proxy first (free, and they exhibit the same `cart_token`-null /
-> dropped-`note_attributes` failure modes), **then budget one paid month to fire ≥1 real Shop Pay order**
-> and confirm the surviving carrier matches before the `AttributedSale` contract is frozen in Phase 4.
-> **Gate:** GO only if exactly one carrier survives all tested express paths above an agreed threshold
-> (≥99% over ≥20 orders/cell); **NO-GO / escalate if the surviving carrier differs between Apple Pay and
-> real Shop Pay** — that disproves the proxy assumption and reshapes the contract.
+**Record (decision block):** Tier-1 primary carrier · express-checkout backbone (proxy-measured) · Tier-2
+role (floor vs co-primary) · rebill-carries-nothing (from a real rebill body) · the open real-Shop-Pay item.
 
-**Record (the worksheet's decision block):** Tier-1 primary carrier · express-checkout backbone · Tier-2
-role (floor vs co-primary) · rebill-carries-nothing (proven from a real rebill body, not inferred).
-
-**Gate (Phase 1 → 2):** every decisive cell has a ✅/❌ with the exact observed value from a raw body;
-the rebill conclusion is recorded from an actual rebill order.
+**Gate (Phase 1 → 2):** every engine-required field is reliably captured **or** has an honest, recorded
+fallback — including a clean `null`/low-confidence party key on express/guest orders. Every decisive matrix
+cell has a ✅/❌ with the exact observed value from a raw body. (Exact carrier ranking is secondary and may
+carry the open real-Shop-Pay item into Phase 4.)
 
 ---
 
@@ -279,8 +291,9 @@ updated with raw-payload evidence; downstream seams exist as documented stubs fo
 ## Verification (end-to-end, per phase)
 
 - **Phase 0:** `just up` → Postgres + capture healthy; `just contract-test` green; malformed fixture → red CI.
-- **Phase 1:** fire real test orders through each matrix cell on `gimlet`; inspect **complete raw bodies**;
-  the result grid is filled with observed values; ≥1 real Shop Pay order confirms (or refutes) the proxy.
+- **Phase 1:** draft the capture-sufficiency checklist from Jovonte's engine inputs first; then fire test
+  orders through each matrix cell, inspect **complete raw bodies**, and fill the reliability column. Express
+  via the Apple/Google-Pay proxy; log the real-Shop-Pay confirmation as an open pre-freeze gate.
 - **Phase 2:** replay a captured webbook K× → assert **one** `order_attribution` row by count; run the
   transition-table unit suite; trigger a same-specificity token collision → assert loud alert.
 - **Phase 3:** replay an express-dropped-attribute order with `customer.id` → assert `b2_customer` high-conf
