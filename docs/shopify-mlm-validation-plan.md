@@ -20,10 +20,10 @@ intended outcome: walk into the next architecture review with the carrier-rankin
 real raw webhook bodies*, a running Capture skeleton, a versioned contract, and an evidence-backed update
 to the decision register (D1–D9 + the worksheet's Part-5 open questions).
 
-> **Why a new repo:** The current working directory (`content-team`) is the INWIGO *marketing* repo and
-> is the wrong home for this. This document is the deliverable here; the actual code lives in a **new
-> monorepo** (`inwigo-commission-poc`) that James creates in Phase 0. The desktop app couldn't let you
-> pick that repo yet because it doesn't exist — Phase 0 creates it.
+> **Why a separate repo:** `content-team` (this repo) is INWIGO's *marketing* repo and is the wrong home
+> for this work — the Shopify/MLM commission POC is a separate venture. This document is the planning
+> deliverable; the code lives in its own standalone monorepo, **`shopify-poc`** (now created at
+> `github.com/doleful-creature/shopify-poc`), whose Phase 0 walking skeleton has been scaffolded separately.
 
 ---
 
@@ -85,10 +85,10 @@ by Go/Python/Java/C#. TypeScript is throwaway scaffolding; the schema files are 
 
 **Goal:** `git clone && just up` boots the skeleton; CI fails on any seam/schema drift.
 
-New repo `inwigo-commission-poc`, created by James (`gh repo create`, private). Layout:
+Standalone repo `shopify-poc` (already created, private). Layout:
 
 ```
-inwigo-commission-poc/
+shopify-poc/
 ├── contracts/                      # the 5 seams — SINGLE source of truth (all-hands CODEOWNERS)
 │   ├── schemas/
 │   │   ├── order_fact.v1.json            # Seam 0 (Shopify→Capture, the money fact)
@@ -103,7 +103,7 @@ inwigo-commission-poc/
 │   ├── asyncapi.yaml                # 5-seam catalog ($refs the schema files)
 │   ├── .spectral.yaml               # house rules
 │   ├── CONTRACTS.md                 # versioning discipline the 4 owners sign
-│   └── package.json                 # @inwigo/contracts — exports validate() + TS types
+│   └── package.json                 # @shopify-poc/contracts — exports validate() + TS types
 ├── services/
 │   ├── capture/                     # ← THE build this round (James)
 │   ├── commission/  ledger/  payouts/   # README + consuming-schema stub only (co-founders)
@@ -117,13 +117,13 @@ inwigo-commission-poc/
 
 **Bootstrap commands** (the exact sequence):
 ```bash
-mkdir inwigo-commission-poc && cd inwigo-commission-poc && git init -b main
+mkdir shopify-poc && cd shopify-poc && git init -b main
 corepack enable && corepack prepare pnpm@latest --activate
 printf 'packages:\n  - "contracts"\n  - "services/*"\n' > pnpm-workspace.yaml
 pnpm init                                 # root: "private": true
 mkdir -p contracts/schemas services/capture/src fixtures infra/sql .github/workflows
 cd contracts && pnpm init && pnpm add ajv ajv-formats && cd ..
-# services/capture/package.json gets:  "@inwigo/contracts": "workspace:*"
+# services/capture/package.json gets:  "@shopify-poc/contracts": "workspace:*"
 pnpm install
 ```
 
@@ -297,4 +297,4 @@ updated with raw-payload evidence; downstream seams exist as documented stubs fo
 Because we're in plan mode in the (wrong) `content-team` repo, the concrete artifact here is **this plan,
 committed to branch `claude/shopify-mlm-validation-plan-rsi2nr`** as a portable markdown doc James can take
 into the new repo and the co-founder review. No application code is written in `content-team`; all build
-work happens in `inwigo-commission-poc` per the phases above.
+work happens in `shopify-poc` per the phases above.
