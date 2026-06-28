@@ -191,8 +191,10 @@ app.post('/webhooks', express.raw({ type: 'application/json' }), (req, res) => {
   res.sendStatus(200);
 });
 ```
-- Register **`orders/create` AND `orders/paid`** separately (express/wallet can populate one but not the
-  other), plus `refunds/create`. Versioned in `shopify.app.toml`.
+- Register **`orders/create`, `orders/paid`, `orders/updated`, AND `refunds/create`** separately
+  (express/wallet can populate one but not the other). `orders/updated` matters because Jovonte's engine
+  **recomputes the whole open-period tree on every order event** — an edited order must emit a *superseding*
+  `AttributedSale` (same `order_id`, new snapshot) so the engine re-aggregates. Versioned in `shopify.app.toml`.
 - Log the **complete raw body**; **webhook.site** on day 1 for instant archaeology before the sink is solid.
 - Tokens `SMOKE_<testid>_<unixts>`, **never reused**; dedupe on order id before grepping (Shopify redelivers).
 - Carriers C1–C5 × paths P1–P6. **Decisive cells first:** C1×P2, C1×P3, C1×P4, C1×P5, C4×P2/P3/P4, C1×P6,
@@ -210,6 +212,13 @@ app.post('/webhooks', express.raw({ type: 'application/json' }), (req, res) => {
 
 **Record (decision block):** Tier-1 primary carrier · express-checkout backbone (proxy-measured) · Tier-2
 role (floor vs co-primary) · rebill-carries-nothing (from a real rebill body) · the open real-Shop-Pay item.
+
+> **DECIDE in Phase 1 — period-assignment timestamp (was Part-5 open question #8).** Because the engine
+> recomputes the whole open-period tree on every order event, **which timestamp assigns a sale's volume to a
+> commission period** is now load-bearing, not a detail: `orders/create` (order placed) vs `orders/paid`
+> (payment captured). Settle it deliberately from the raw bodies — note when each fires for express/wallet,
+> and which the engine should treat as the period anchor — and record the choice. (Snapshots are immutable
+> and **period-stamped**, so a refund into a *closed* period reverses the frozen historical value.)
 
 **Gate (Phase 1 → 2):** every engine-required field is reliably captured **or** has an honest, recorded
 fallback — including a clean `null`/low-confidence party key on express/guest orders. Every decisive matrix
@@ -293,8 +302,10 @@ with evidence — "set the stage for more validations."
   (~19 attempts / ~48h) — add a health-check / re-register check so attribution can't silently go dark.
 - **Update the registers with evidence:** the decision register **D1–D9** (esp. D2 money units, D3
   idempotency, D6 `shop_id` RLS — all now demonstrated) and the worksheet's **Part-5 open questions**
-  (#1 B2 coverage, #3 rebill map, #8 `orders/create` vs `orders/paid`, #9 lost-guest gap). Hand Jovonte
-  the frozen `AttributedSale` + the documented `identity_enrichment` reverse seam.
+  (#1 B2 coverage, #3 rebill map, **#8 `orders/create` vs `orders/paid` — promoted to a Phase-1 decision
+  (period assignment)**, #9 lost-guest gap). Hand Jovonte the frozen `AttributedSale` + the documented
+  `identity_enrichment` reverse seam, and confirm his engine treats `orders/updated` as a superseding
+  re-aggregation trigger.
 
 **Gate (done):** `just contract-test` green; a null-`resolved_rep_id` `AttributedSale` round-trips through
 the mock consumer and is queryable as an unattributed record; the decision register and Part-5 answers are
