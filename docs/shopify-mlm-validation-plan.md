@@ -45,8 +45,9 @@ by Go/Python/Java/C#. TypeScript is throwaway scaffolding; the schema files are 
 
 **Proves (this round):**
 - That the capture carries **everything Jovonte's commission engine needs** — the stable party key
-  (`resolved_rep_id` or `customer_id`) + confidence, raw money, context, and reversal anchors — validated
-  consumer-driven against the engine's input spec. *(The headline: capture sufficiency for the seam.)*
+  (`resolved_rep_id` or `customer_id`) + confidence, raw money, **per-item PV/CV volume snapshot**, context,
+  and reversal anchors — validated consumer-driven against the engine's input spec. *(The headline: capture
+  sufficiency for the seam.)*
 - Which carrier(s) survive each express-checkout path, from **real raw webhook bodies** — supporting
   evidence for how reliably each engine-required field is populated (express measured via an accepted
   Apple/Google-Pay proxy; real Shop Pay deferred to a logged pre-freeze gate).
@@ -164,10 +165,23 @@ engine *input spec*, enumerate every field the engine consumes per sale; for eac
 `AttributedSale` field carries it, (b) where it originates (order-native carrier / Tier-2 `customer.id`
 stitch / derived / reverse-seam `customer_type`), (c) reliability + the fallback when absent. Load-bearing
 needs: a **stable party key** (`resolved_rep_id` when known, else `customer_id`) **+ `bind_confidence`**, with
-`null` first-class; **raw money** (line items + per-line discount + currency — capture must *not* pre-compute
-volume; the engine applies its own PV/BV/CV table); `context` (retail vs enrollment); `links` (`customer_id`,
-`refund_of`); `occurred_at` + `idempotency_key`; and the persisted `customer→rep` map for rebills. If the
-checklist surfaces a missing field, propose the **additive** change to `attributed_sale.v1.json`.
+`null` first-class; **raw money** (line items + per-line discount + currency); **comp-plan volume**
+(`pv`/`cv`/`retail_bonus`) — **snapshotted by Capture** from the Shopify **variant metafields** as-of the
+order (decision 2026-06-28, see below); `context` (retail vs enrollment); `links` (`customer_id`,
+`refund_of`); optional order `ship_country`; `occurred_at` + `idempotency_key`; and the persisted
+`customer→rep` map for rebills. If the checklist surfaces a missing field, propose the **additive** change
+to `attributed_sale.v1.json`.
+
+> **Decision (2026-06-28) — comp-plan volume lives as a Capture snapshot.** Prompted by Jovonte's POC
+> (his engine consumes per-item PV/CV; PV/CV/Retail-Bonus can be authored on Shopify **variant metafields**).
+> PV/CV are authored on the variant (merchant surface) and **frozen as-of the order** into
+> `attributed_sale.money.line_items[].volume` — because metafields are **mutable** and runs/clawbacks must
+> reproduce the historical value. Capture **records** the observed volume; the engine **adjudicates**. This
+> **revises the brief's Seam-1 "engine owns the volume table" stance.** Volume is integer/scaled, never
+> float. **Open Phase-1 test:** do variant metafields ride along in the order webhook (via the
+> subscription's `metafield_namespaces`/`include_fields`) or need a follow-up GraphQL fetch keyed on
+> `variant_id`? *(Note: the PAYEE/distributor country used in `payeeQualifications` is the engine's
+> genealogy/profile data — NOT the order's `ship_country`.)*
 
 **Step 2 — Run the matrix as evidence** (build the raw sink first; discipline starts *here*, not Phase 2):
 ```ts
